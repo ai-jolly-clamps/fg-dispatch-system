@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <title>FG Dispatch Dashboard</title>
+
+    <link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
+
+</head>
+
+<body>
+
+<div class="container-fluid mt-4">
+
+    <div class="fg-header">
+
+    <div class="fg-left">
+
+        <img src="{{ url_for('static', filename='images/jolly_logo.jpg') }}"
+             alt="JOLLY Logo"
+             class="jolly-logo">
+
+        <h2 class="fg-title">
+            FG Dispatch Dashboard
+        </h2>
+
+    </div>
+
+    <div class="fg-right">
+
+        <span class="me-3">
+            Role :
+            <b>{{ role }}</b>
+        </span>
+
+        <a href="/summary_report"
+            class="btn btn-primary me-2">
+            Summary Report
+        </a>
+
+        <a href="/logout"
+        class="logout-icon"
+        title="Logout">
+            <i class="bi bi-box-arrow-right"></i>
+        </a>
+
+        {% if role == "admin" %}
+        <a href="/admin"
+        class="back-icon"
+        title="Back">
+            <i class="bi bi-arrow-left-circle-fill"></i>
+        </a>
+        {% else %}
+        <a href="/"
+        class="back-icon"
+        title="Back">
+            <i class="bi bi-arrow-left-circle-fill"></i>
+        </a>
+        {% endif %}
+        
+    </div>
+
+</div>
+
+    <hr>
+
+    <!-- DATE FILTER -->
+
+    <div class="card p-3 mb-3">
+
+        <div class="row">
+
+        <div class="col-md-3">
+
+            <label>
+                Dispatch Plan Date
+            </label>
+
+            <input type="date"
+                id="dispatch_date"
+                class="form-control">
+
+        </div>
+
+        <div class="col-md-2">
+
+            <label>&nbsp;</label>
+
+            <button class="btn btn-primary form-control"
+                    onclick="loadData()">
+                Load
+            </button>
+
+        </div>
+
+        <div class="col-md-2">
+
+            <label>&nbsp;</label>
+
+            <button class="btn btn-success form-control"
+                    onclick="downloadFGData()">
+                Download Excel
+            </button>
+
+        </div>
+
+    </div>
+    <br><br>
+    <!-- TABLE -->
+
+    <table class="table table-bordered table-striped">
+
+        <thead class="table-success">
+
+        <tr>
+
+            <th>M Code</th>
+            <th>Customer</th>
+            <th>Part Number</th>
+            <th>Size</th>
+            <th>Dispatch Qty</th>
+            <th>Sales Order No</th>
+            <th>Invoice No</th>
+            <th>Remarks</th>
+
+            <th>Complete</th>
+            <th>Pending</th>
+
+            <th>Status</th>
+            <th>Ageing</th>
+            <th>Completion Date</th>
+            
+            <th>Reason</th>
+
+            <td>
+
+            <input type="checkbox"
+                class="row_select"
+                data-id="${row.id}">
+
+        </td>
+
+        </tr>
+
+        </thead>
+
+        <tbody id="fgTable">
+
+        </tbody>
+
+    </table>
+    <div class="mt-3">
+
+        <button
+            type="button"
+            class="btn btn-success"
+            onclick="submitFGData()">
+
+            Submit FG Data
+
+        </button>
+
+    </div>
+
+</div>
+
+<script>
+
+function loadData()
+{
+    let dispatch_date =
+    document.getElementById("dispatch_date").value;
+
+    if(dispatch_date == "")
+    {
+        alert("Select Date");
+        return;
+    }
+
+    fetch("/load_date", {
+
+        method: "POST",
+
+        headers: {
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+
+        body: "dispatch_date=" + dispatch_date
+
+    })
+
+    .then(response => response.json())
+
+    .then(data => {
+
+        let table =
+        document.getElementById("fgTable");
+
+        table.innerHTML = "";
+
+        data.forEach(row => {
+            let editedCols =
+            (row.edited || "").split(",");
+
+            table.innerHTML += `
+            <tr>
+
+                <td class="${editedCols.includes('m_code') ? 'edited-cell' : ''}">
+                ${row.m_code}
+                </td>
+
+                <td class="${editedCols.includes('customer') ? 'edited-cell' : ''}">
+                ${row.customer}
+                </td>
+
+                <td class="${editedCols.includes('part_number') ? 'edited-cell' : ''}">
+                ${row.part_number}
+                </td>
+
+                <td class="${editedCols.includes('size') ? 'edited-cell' : ''}">
+                ${row.size}
+                </td>
+
+                <td class="dispatch_qty ${editedCols.includes('dispatch_qty') ? 'edited-cell' : ''}">
+                    ${row.dispatch_qty}
+                </td>
+                <td class="${editedCols.includes('sales_order_no') ? 'edited-cell' : ''}">
+                    ${row.sales_order_no || ""}
+                </td>
+                <td class="${editedCols.includes('invoice_no') ? 'edited-cell' : ''}">
+                ${row.invoice_no}
+                </td>
+
+                <td class="${editedCols.includes('remarks') ? 'edited-cell' : ''}">
+                ${row.remarks}
+                </td>
+
+                <td class="complete_qty">
+                    ${row.complete || 0}
+                </td>
+
+                <td class="pending_qty">
+                    ${row.pending || row.dispatch_qty}
+                </td>
+
+                <td>
+
+                <select class="form-control status"
+                        onchange="updateQty(this)">
+
+                    <option value="" selected disabled>Select Status</option>
+                    <option value="Complete">Complete</option>
+                    <option value="Ready to Dispatch">Ready to Dispatch</option>
+                    <option value="Dispatch Packing Pending">Dispatch Packing Pending</option>
+                    <option value="QC Hold">QC Hold</option>
+                    <option value="PDI Pending">PDI Pending</option>
+                    <option value="Invoice Pending">Invoice Pending</option>
+                    <option value="Customer Pickup Pending">Customer Pickup Pending</option>
+                    <option value="Hold by Sales">Hold by Sales</option>
+                    <option value="Primary Packing Pending">Primary Packing Pending</option>
+
+                </select>
+
+                </td>
+
+                <td class="ageing">
+                    ${row.ageing || 0}
+                </td>
+
+                <td>
+
+                    <input type="date"
+                           class="form-control completion_date"
+                           value="${row.completion_date || ''}"
+                           onchange="calculateAgeing(this)">
+
+                </td>
+
+                <td>
+
+                    <input type="text"
+                           class="form-control reason"
+                           value="${row.reason || ''}">
+
+                </td>
+
+                <td>
+
+                    <input type="checkbox"
+                        class="row_select"
+                        data-id="${row.id}">
+
+                </td>
+
+            </tr>
+
+            `;
+
+        });
+
+    })
+
+    .catch(error => {
+
+        console.log(error);
+
+        alert("Unable to Load Data");
+
+    });
+
+}
+
+
+// ==========================
+// AGEING CALCULATION
+// ==========================
+
+function calculateAgeing(input)
+{
+    let tr = input.closest("tr");
+
+    let dispatchDate =
+    document.getElementById("dispatch_date").value;
+
+    let completionDate =
+    input.value;
+
+    if(completionDate === "")
+    {
+        return;
+    }
+
+    let start = new Date(dispatchDate);
+
+    let end = new Date(completionDate);
+
+    let days =
+    Math.floor(
+        (end - start) /
+        (1000 * 60 * 60 * 24)
+    );
+
+    tr.querySelector(".ageing").innerText =
+    days;
+}
+
+// ======================================
+// FG STATUS CHANGE
+// ======================================
+
+function updateQty(selectBox)
+{
+    let tr = selectBox.closest("tr");
+
+    let dispatchQty =
+    parseInt(
+        tr.querySelector(".dispatch_qty").innerText
+    ) || 0;
+
+    let completeCell =
+    tr.querySelector(".complete_qty");
+
+    let pendingCell =
+    tr.querySelector(".pending_qty");
+
+    if(selectBox.value === "Complete")
+    {
+        completeCell.innerText = dispatchQty;
+        pendingCell.innerText = 0;
+    }
+    else
+    {
+        completeCell.innerText = 0;
+        pendingCell.innerText = dispatchQty;
+    }
+}
+
+function rowDispatchQty(tr)
+{
+    return tr.cells[4].innerText;
+}
+
+// ==========================
+// SAVE FG DATA
+// ==========================
+
+function downloadFGData()
+{
+    let dispatch_date =
+        document.getElementById("dispatch_date").value;
+
+    if(dispatch_date == "")
+    {
+        alert("Please select Dispatch Plan Date");
+        return;
+    }
+
+    window.location.href =
+        "/download_fg?dispatch_date=" + dispatch_date;
+}
+
+function submitFGData()
+{
+    let rows = [];
+
+    document
+    .querySelectorAll("#fgTable tr")
+    .forEach(function(tr){
+
+        let checkbox =
+        tr.querySelector(".row_select");
+
+        if(checkbox && checkbox.checked)
+        {
+            rows.push({
+
+                id:
+                checkbox.dataset.id,
+
+                complete:
+                tr.querySelector(".complete_qty").innerText,
+
+                pending:
+                tr.querySelector(".pending_qty").innerText,
+
+                status:
+                tr.querySelector(".status").value,
+
+                ageing:
+                tr.querySelector(".ageing").innerText,
+
+                completion_date:
+                tr.querySelector(".completion_date").value,
+
+                reason:
+                tr.querySelector(".reason").value
+
+            });
+        }
+
+    });
+
+    if(rows.length === 0)
+    {
+        alert("Please select at least one row");
+        return;
+    }
+
+    fetch("/update_fg_bulk", {
+
+        method: "POST",
+
+        headers: {
+            "Content-Type": "application/json"
+        },
+
+        body: JSON.stringify({
+            rows: rows
+        })
+
+    })
+
+    .then(response => response.json())
+
+    .then(data => {
+
+        if(data.success)
+        {
+            alert("Selected rows saved successfully");
+
+            loadData();
+        }
+        else
+        {
+            alert(data.error);
+        }
+
+    })
+
+    .catch(error => {
+
+        console.log(error);
+
+        alert("Save Failed");
+
+    });
+}
+
+</script>
+</body>
+</html>
