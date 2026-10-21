@@ -692,6 +692,7 @@ def save_summary():
         return jsonify({"success": False, "error": str(e)})
 
 
+<<<<<<< HEAD
 
 
 # ============================================================
@@ -903,6 +904,8 @@ def admin_data_summary_record(record_id):
         return jsonify({"success": False, "error": "Could not save dispatch summary changes."}), 500
 
 
+=======
+>>>>>>> d0286ef2b603efb6f2afbb9cca174fc16f3f9e9c
 @app.route("/logout")
 def logout():
     session.clear()
@@ -941,4 +944,4 @@ if __name__ == "__main__":
             print("ODBC Driver 18 for SQL Server, and SQL Server availability.")
             raise
 
-    app.run(debug=True)
+    app.run(host="127.0.0.1", port=8002)
