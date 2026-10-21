@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Dispatch Data Management</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="container-fluid py-4 px-3 px-lg-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div><h2 class="mb-1">Dispatch Data Management</h2><div class="text-muted">Admin-only access · Direct database records</div></div>
+    <div class="d-flex gap-2"><a class="btn btn-outline-secondary" href="/admin">Admin Dashboard</a><a class="btn btn-outline-danger" href="/logout">Logout</a></div>
+  </div>
+  <ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#reportTab" type="button">DailyDispatchReport</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#summaryTab" type="button">Daily Dispatch Summary</button></li>
+  </ul>
+  <div class="tab-content">
+    <section class="tab-pane fade show active" id="reportTab">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <h5 class="mb-0">DailyDispatchReport <span id="reportCount" class="badge text-bg-secondary">0</span></h5>
+        <div class="d-flex flex-wrap align-items-end gap-2">
+          <div><label for="reportDateFilter" class="form-label mb-1">Filter by dispatch date</label><input type="date" id="reportDateFilter" class="form-control form-control-sm"></div>
+          <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearDateFilter('report')">Clear date</button>
+          <button class="btn btn-sm btn-primary" type="button" onclick="loadReport()">Refresh</button>
+        </div>
+      </div>
+      <div id="reportMessage" class="alert d-none"></div><div class="table-wrap"><table class="table table-sm table-striped table-hover mb-0"><thead><tr>
+        <th>ID</th><th>Dispatch Date</th><th>M Code</th><th>Customer Name</th><th>Part Number</th><th>Size</th><th>Dispatch Plan Qty</th><th>Sales Order No</th><th>Invoice Number</th><th>Remarks</th><th>Complete</th><th>Pending Qty</th><th>Status</th><th>Ageing</th><th>Date of Completion</th><th>Reason</th><th>Edited Flag</th><th class="actions">Actions</th>
+      </tr></thead><tbody id="reportBody"><tr><td colspan="18" class="text-center p-4">Loading...</td></tr></tbody></table></div>
+    </section>
+    <section class="tab-pane fade" id="summaryTab">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <h5 class="mb-0">Daily Dispatch Summary <span id="summaryCount" class="badge text-bg-secondary">0</span></h5>
+        <div class="d-flex flex-wrap align-items-end gap-2">
+          <div><label for="summaryDateFilter" class="form-label mb-1">Filter by summary date</label><input type="date" id="summaryDateFilter" class="form-control form-control-sm"></div>
+          <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearDateFilter('summary')">Clear date</button>
+          <button class="btn btn-sm btn-primary" type="button" onclick="loadSummary()">Refresh</button>
+        </div>
+      </div>
+      <div id="summaryMessage" class="alert d-none"></div><div class="table-wrap"><table class="table table-sm table-striped table-hover mb-0"><thead><tr><th>ID</th><th>Date</th><th>Total Dispatch Plan Qty</th><th>Total Dispatch Qty</th><th>Percentage</th><th>Daily Production Qty</th><th class="actions">Actions</th></tr></thead><tbody id="summaryBody"><tr><td colspan="7" class="text-center p-4">Loading...</td></tr></tbody></table></div>
+    </section>
+  </div>
+</div>
+<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content"><form id="editForm"><div class="modal-header"><h5 class="modal-title" id="editTitle">Edit Record</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div id="editFields" class="editor-grid" style="max-height:60vh; overflow-y:auto; padding:2px 6px 2px 2px;"></div><div id="editError" class="text-danger mt-3"></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Save Changes</button></div></form></div></div></div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const reportFields = [
+ ['dispatch_date','Dispatch Date','date'],['m_code','M Code','text'],['customer_name','Customer Name','text'],['part_number','Part Number','text'],['size','Size','text'],['dispatch_plan_qty','Dispatch Plan Qty','number'],['sales_order_no','Sales Order No','text'],['invoice_number','Invoice Number','text'],['remarks','Remarks','textarea'],['complete','Complete','number'],['pending_qty','Pending Qty','number'],['status','Status','text'],['ageing','Ageing','number'],['date_of_completion','Date of Completion','date'],['reason','Reason','textarea'],['edited_flag','Edited Flag','text']
+];
+const summaryFields = [['date','Date','date'],['total_dispatch_plan_qty','Total Dispatch Plan Qty','number'],['total_dispatch_qty','Total Dispatch Qty','number'],['percentage','Percentage (e.g. 75%)','text'],['daily_production_qty','Daily Production Qty','number']];
+let editType='', editId=null, editModal;
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function showMessage(type,msg){const el=document.getElementById(type+'Message');el.className='alert alert-danger';el.textContent=msg;el.classList.remove('d-none');}
+function clearMessage(type){const el=document.getElementById(type+'Message');el.classList.add('d-none');}
+async function requestJson(url, options={}){const r=await fetch(url,{credentials:'same-origin',headers:{'Accept':'application/json','Content-Type':'application/json'},...options});const data=await r.json();if(!r.ok||data.success===false)throw new Error(data.error||`Request failed (${r.status})`);return data;}
+function filteredRows(type) {
+ const rows = type === 'report' ? (window.reportCache || []) : (window.summaryCache || []);
+ const filter = document.getElementById(type === 'report' ? 'reportDateFilter' : 'summaryDateFilter');
+ const selectedDate = filter ? filter.value : '';
+ if (!selectedDate) return rows;
+ return rows.filter(row => String(type === 'report' ? (row.dispatch_date || '') : (row.date || '')).slice(0,10) === selectedDate);
+}
+function renderReport() {
+ const rows = filteredRows('report');
+ const body = document.getElementById('reportBody');
+ document.getElementById('reportCount').textContent = `${rows.length} shown`;
+ body.innerHTML = rows.length ? rows.map(r=>`<tr><td>${r.id}</td><td>${esc(r.dispatch_date)}</td><td>${esc(r.m_code)}</td><td>${esc(r.customer_name)}</td><td>${esc(r.part_number)}</td><td>${esc(r.size)}</td><td>${r.dispatch_plan_qty}</td><td>${esc(r.sales_order_no)}</td><td>${esc(r.invoice_number)}</td><td>${esc(r.remarks)}</td><td>${r.complete}</td><td>${r.pending_qty}</td><td>${esc(r.status)}</td><td>${r.ageing}</td><td>${esc(r.date_of_completion)}</td><td>${esc(r.reason)}</td><td>${esc(r.edited_flag)}</td><td class="actions"><div class="d-flex gap-1"><button class="btn btn-sm btn-outline-primary" onclick="editRow('report',${r.id})">Edit</button><button class="btn btn-sm btn-outline-danger" onclick="deleteRow('report',${r.id})">Delete</button></div></td></tr>`).join(''):'<tr><td colspan="18" class="text-center p-4">No records found for this date.</td></tr>';
+}
+function renderSummary() {
+ const rows = filteredRows('summary');
+ const body = document.getElementById('summaryBody');
+ document.getElementById('summaryCount').textContent = `${rows.length} shown`;
+ body.innerHTML = rows.length ? rows.map(r=>`<tr><td>${r.id}</td><td>${esc(r.date)}</td><td>${r.total_dispatch_plan_qty}</td><td>${r.total_dispatch_qty}</td><td>${esc(r.percentage)}</td><td>${r.daily_production_qty}</td><td class="actions"><div class="d-flex gap-1"><button class="btn btn-sm btn-outline-primary" onclick="editRow('summary',${r.id})">Edit</button><button class="btn btn-sm btn-outline-danger" onclick="deleteRow('summary',${r.id})">Delete</button></div></td></tr>`).join(''):'<tr><td colspan="7" class="text-center p-4">No records found for this date.</td></tr>';
+}
+async function loadReport(){clearMessage('report');const body=document.getElementById('reportBody');body.innerHTML='<tr><td colspan="18" class="text-center p-4">Loading...</td></tr>';try{const rows=await requestJson('/admin/data/report');if(!Array.isArray(rows))throw new Error(rows.error||'Unexpected report data received.');window.reportCache=rows;renderReport();}catch(e){showMessage('report',e.message);body.innerHTML='';}}
+async function loadSummary(){clearMessage('summary');const body=document.getElementById('summaryBody');body.innerHTML='<tr><td colspan="7" class="text-center p-4">Loading...</td></tr>';try{const rows=await requestJson('/admin/data/summary');if(!Array.isArray(rows))throw new Error(rows.error||'Unexpected summary data received.');window.summaryCache=rows;renderSummary();}catch(e){showMessage('summary',e.message);body.innerHTML='';}}
+function clearDateFilter(type) {
+ const input = document.getElementById(type === 'report' ? 'reportDateFilter' : 'summaryDateFilter');
+ if (input) input.value = '';
+ if (type === 'report') renderReport(); else renderSummary();
+}
+document.getElementById('reportDateFilter').addEventListener('change', renderReport);
+document.getElementById('summaryDateFilter').addEventListener('change', renderSummary);
+function editRow(type,id){editType=type;editId=id;const row=(type==='report'?window.reportCache:window.summaryCache).find(x=>x.id===id);const fields=type==='report'?reportFields:summaryFields;document.getElementById('editTitle').textContent=`Edit ${type==='report'?'DailyDispatchReport':'Daily Dispatch Summary'} · ID ${id}`;document.getElementById('editError').textContent='';document.getElementById('editFields').innerHTML=fields.map(([key,label,kind])=>`<div><label for="field_${key}">${esc(label)}</label>${kind==='textarea'?`<textarea class="form-control" id="field_${key}" name="${key}" rows="2">${esc(row[key]??'')}</textarea>`:`<input class="form-control" id="field_${key}" name="${key}" type="${kind}" ${kind==='number'?'step="1"':''} value="${esc(row[key]??'')}"></div>`}`).join('');editModal.show();}
+document.getElementById('editForm').addEventListener('submit',async e=>{
+ e.preventDefault();
+ const fields=editType==='report'?reportFields:summaryFields;
+ const data={};
+ for(const [key,,kind] of fields){
+   const input=document.getElementById('field_'+key);
+   const v=input.value.trim();
+   if(kind==='number'){
+     const n=v===''?0:Number(v);
+     if(!Number.isFinite(n)){document.getElementById('editError').textContent=key+' must be a valid number.';input.focus();return;}
+     data[key]=n;
+   } else data[key]=v;
+ }
+ const saveButton=document.querySelector('#editForm button[type="submit"]');
+ saveButton.disabled=true;
+ saveButton.textContent='Saving...';
+ document.getElementById('editError').textContent='';
+ try{
+   await requestJson(`/admin/data/${editType}/${editId}`,{method:'PUT',body:JSON.stringify(data)});
+   editModal.hide();
+   if(editType==='report')await loadReport();else await loadSummary();
+   const message=document.getElementById(editType+'Message');
+   message.className='alert alert-success';
+   message.textContent='Record saved successfully and the table has been refreshed.';
+   message.classList.remove('d-none');
+ }catch(err){document.getElementById('editError').textContent=err.message;}
+ finally{saveButton.disabled=false;saveButton.textContent='Save Changes';}
+});
+async function deleteRow(type,id){if(!confirm(`Delete ${type==='report'?'DailyDispatchReport':'Daily Dispatch Summary'} row ID ${id}? This action cannot be undone.`))return;if(!confirm(`FINAL CONFIRMATION: Permanently delete row ID ${id}?`))return;try{await requestJson(`/admin/data/${type}/${id}`,{method:'DELETE'});if(type==='report')await loadReport();else await loadSummary();}catch(e){alert('Delete failed: '+e.message);}}
+document.addEventListener('DOMContentLoaded',()=>{editModal=new bootstrap.Modal(document.getElementById('editModal'));loadReport();loadSummary();});
+</script>
+</body>
+</html>
